@@ -20,8 +20,9 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 class PlayerFragment : Fragment(R.layout.fragment_player) {
 
+
+    private var model: PlayerModel = PlayerModel()
     private var binding: FragmentPlayerBinding? = null
-    private var isWatchingPlayListView = true
     private var player: ExoPlayer? = null
     private lateinit var playListAdapter: PlayListAdapter
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -54,11 +55,13 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         }
 
         fragmentPlayerBinding.skipNextImageView.setOnClickListener {
-
+            val nextMusic = model.nextMusic() ?: return@setOnClickListener
+            playMusic(nextMusic)
         }
 
         fragmentPlayerBinding.skipPrevImageView.setOnClickListener {
-
+            val prevMusic = model.prevMusic() ?: return@setOnClickListener
+            playMusic(prevMusic)
         }
     }
 
@@ -81,6 +84,14 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                     }
                 }
 
+                //MediaItem이 바뀌는 것의 CallBack을 이용해서 RecyclerViewAdapter를 다시 갱신
+                // 만약 내가 아래 음악을 실행 시 실행되고 있는 MediaIndex를 currentPosition으로 초기화
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    super.onMediaItemTransition(mediaItem, reason)
+                    val newIndex = mediaItem?.mediaId ?: return
+                    model.currentPosition = newIndex.toInt()
+                    playListAdapter.submitList(model.getAdapterModels())
+                }
 
             })
         }
@@ -88,7 +99,7 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
 
     private fun initRecyclerView(fragmentPlayerBinding: FragmentPlayerBinding) {
         playListAdapter = PlayListAdapter {
-            // todo item클릭시 해당 음악 재생
+            playMusic(it)
         }
 
         fragmentPlayerBinding.playListRecyclerView.apply {
@@ -99,10 +110,15 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
 
     private fun initPlayListButton(fragmentPlayerBinding: FragmentPlayerBinding) {
         fragmentPlayerBinding.playListImageView.setOnClickListener {
-            //todo 만약에 서버에서 데이터가 다 불려오지 않는 형태일 경우 (즉 표시할 데이터가 없을 경우) playList로 넘어가지 않게
-            fragmentPlayerBinding.playerViewGroup.isVisible = isWatchingPlayListView
-            fragmentPlayerBinding.playerListViewGroup.isVisible = isWatchingPlayListView.not()
-            isWatchingPlayListView = !isWatchingPlayListView
+
+            //데이터를 다불러오지 못했을때 return 처리
+            if (model.currentPosition == -1) {
+                return@setOnClickListener
+            }
+
+            fragmentPlayerBinding.playerViewGroup.isVisible = model.isWatchingPlayListView
+            fragmentPlayerBinding.playerListViewGroup.isVisible = model.isWatchingPlayListView.not()
+            model.isWatchingPlayListView = !model.isWatchingPlayListView
         }
     }
 
@@ -123,11 +139,9 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                             Log.d("PlayerFragment", "${response.body()}")
 
                             response.body()?.let { musicDto ->
-                                val modelList = musicDto.musics.mapIndexed { index, musicEntity ->
-                                    musicEntity.mapper(index.toLong())
-                                }
-                                setMusicList(modelList)
-                                playListAdapter.submitList(modelList)
+                                model = musicDto.mapper()
+                                setMusicList(model.getAdapterModels())
+                                playListAdapter.submitList(model.getAdapterModels())
 
                             }
                         }
@@ -150,8 +164,17 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
             })
 
             player?.prepare()
-            player?.play()
         }
+
+    }
+
+    private fun playMusic(musicModel: MusicModel) {
+        //player는 MusicModel을 MediaItem형태의 리스트로 가지고잇음
+        // Fragment MusicList는 List형식으로 리스트를 가지고 있음
+        // 이 둘은 Id(Index) 비교를 해서 플레이할 리스트를 고르면 될것같음
+        model.updateCurrentPosition(musicModel)
+        player?.seekTo(model.currentPosition, 0)
+        player?.play()
 
     }
 
